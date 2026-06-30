@@ -22,14 +22,9 @@
     chrome.runtime.sendMessage({ type: 'POST_DATA', endpoint, data });
   }
 
-  // ====== 小红书 Profile Page Scraping ======
+  // ====== 小红书 Profile Page Scraping (no scroll, just visible notes) ======
   if (platform === 'xiaohongshu' && /\/user\/profile\//.test(location.pathname)) {
-    setTimeout(async () => {
-      for (let i = 0; i < 4; i++) {
-        window.scrollTo(0, document.body.scrollHeight);
-        await new Promise(r => setTimeout(r, 1500));
-      }
-
+    setTimeout(() => {
       const sections = document.querySelectorAll('section.note-item');
       const allNotes: any[] = [];
       for (let i = 0; i < sections.length; i++) {
@@ -53,12 +48,12 @@
         }
       }
 
-      const notes = allNotes.slice(-10);
+      const notes = allNotes.slice(-5); // latest 5
       const nickname = document.title.includes(' - ') ? document.title.split(' - ')[0].trim() : '';
       const m = location.pathname.match(/\/user\/profile\/([a-f0-9]+)/);
       const userId = m ? m[1] : '';
 
-      console.log('[Agent Feeds] Scraped', notes.length, 'notes');
+      console.log('[Agent Feeds] Scraped', notes.length, 'notes (no scroll)');
       forward({ platform, userId, profile: { nickname, avatar: '' }, notes, replace: true, scrapedAt: new Date().toISOString() }, '/api/extension/data');
     }, 3000);
   }

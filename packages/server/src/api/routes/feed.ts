@@ -1,5 +1,6 @@
 import { Router, Request, Response } from 'express';
 import { getAllFeedItems, getFeedItemById, markRead, markSaved } from '../../db/repositories/feed';
+import { getUserById } from '../../db/repositories/users';
 
 export function createFeedRoutes(): Router {
   const router = Router();
@@ -14,9 +15,20 @@ export function createFeedRoutes(): Router {
         cursor: cursor as string | undefined,
         limit: parseInt(limit as string),
       });
+
+      // Enrich items with author info
+      const enriched = await Promise.all(items.map(async (item) => {
+        const author = await getUserById(item.authorId);
+        return {
+          ...item,
+          authorName: author?.profile?.nickname || '',
+          authorAvatar: author?.profile?.avatar || '',
+        };
+      }));
+
       const hasMore = items.length === parseInt(limit as string);
       const nextCursor = hasMore && items.length > 0 ? items[items.length - 1].createdAt : null;
-      res.json({ items, nextCursor, hasMore });
+      res.json({ items: enriched, nextCursor, hasMore });
     } catch (err) {
       res.status(500).json({ error: 'Failed to fetch feed' });
     }
