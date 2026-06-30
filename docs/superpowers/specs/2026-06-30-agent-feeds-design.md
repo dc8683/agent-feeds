@@ -1,100 +1,100 @@
-# Agent Feeds — Design Spec
+# Agent Feeds — 设计文档
 
-## Overview
+## 概述
 
-Local application that aggregates followed users' posts from 小红书, B站, and 抖音, processes content through cloud AI APIs (video transcription + summarization), and presents a unified, AI-summarized feed in a local web UI.
+本地应用，聚合用户在 小红书、B站、抖音 上关注账号的推送内容（视频、图文、动态），通过云端 AI API 完成视频转写与内容总结，在本地 Web 页面中呈现统一的信息流。
 
-**Architecture pattern:** Pipeline — 6 stages, each with well-defined input/output.
+**架构模式：** Pipeline —— 6 个阶段，每阶段有明确定义的输入输出。
 
-## Key Decisions
+## 关键决策
 
-| Decision | Choice |
+| 决策项 | 选择 |
 |---|---|
-| AI deployment | Cloud API only (DeepSeek, OpenAI, etc.) |
-| Feed model | Continuous update stream (RSS-like), 30-60 min polling |
-| Summary granularity | Per-item summaries + per-user digests |
-| Backend runtime | Node.js + TypeScript |
-| Frontend | Vite + Vue 3 + Vue Router |
-| Storage | SQLite via `sqlite3` package |
-| Video transcription | Cloud Whisper API |
-| Following management | Manual selection + user-defined groups |
-| Initial setup | Guided wizard flow |
-| Browser extension | Manifest V3, thin: session/cookie forwarding only |
+| AI 部署方式 | 仅云端 API（DeepSeek、OpenAI 等） |
+| 信息流模式 | 持续更新流（类 RSS），每 30-60 分钟轮询 |
+| 总结粒度 | 单条摘要 + 按用户归并摘要 |
+| 后端运行时 | Node.js + TypeScript |
+| 前端 | Vite + Vue 3 + Vue Router |
+| 存储 | SQLite（`sqlite3` 包） |
+| 视频转文字 | 云端 Whisper API |
+| 关注管理 | 手动勾选 + 分组管理 |
+| 初始设置 | 引导式流程 |
+| 浏览器插件 | Manifest V3，极简：仅传递 Session/Cookie |
 
-## Architecture
+## 架构
 
 ```
-Extension → Fetcher → Downloader → Transcriber → Summarizer → Feed Server + Web UI
+插件 → 拉取器 → 下载器 → 转写器 → 总结器 → Feed 服务 + Web 界面
 ```
 
-### 1. Browser Extension
-- Manifest V3 (Chrome/Edge compatible)
-- Detects when user is on a supported platform
-- Extracts and forwards cookies/session to local service via HTTP POST
-- Popup shows per-platform connection status
-- **No scraping logic in extension**
+### 1. 浏览器插件
+- Manifest V3（兼容 Chrome/Edge）
+- 检测用户在受支持平台上的浏览行为
+- 提取 Cookie/Session 并通过 HTTP POST 发送给本地服务
+- 弹窗显示各平台连接状态
+- **插件内不做任何抓取逻辑**
 
-### 2. Fetcher (per-platform adapters)
-- Interface: `PlatformAdapter { fetch(userId, session): RawPost[] }`
-- One adapter per platform: `adapters/xiaohongshu.ts`, `bilibili.ts`, `douyin.ts`
-- Shared logic: rate limiting, retry, dedup (UNIQUE on platform+post_id)
-- Fetches staggered per platform, not simultaneous
+### 2. 拉取器（按平台适配）
+- 接口：`PlatformAdapter { fetch(userId, session): RawPost[] }`
+- 每个平台一个适配器：`adapters/xiaohongshu.ts`、`bilibili.ts`、`douyin.ts`
+- 共享逻辑：频率控制、重试、去重（platform + post_id 唯一约束）
+- 各平台错开拉取，不同时进行
 
-### 3. Downloader
-- Downloads media files (video, images) to `~/.agent-feeds/media/`
-- Max 3 concurrent downloads per platform
-- ffmpeg: video → audio (16kHz mono wav for Whisper API)
-- Retry 3x with exponential backoff per file
+### 3. 下载器
+- 下载媒体文件（视频、图片）至 `~/.agent-feeds/media/`
+- 每平台最多 3 个并发下载
+- ffmpeg：视频 → 音频（16kHz 单声道 wav，适配 Whisper API）
+- 单文件失败重试 3 次，指数退避
 
-### 4. Transcriber
-- Cloud Whisper API (DeepSeek/OpenAI)
-- Text posts: skip, pass through
-- Video: audio → transcript
-- Images: optional vision model description
-- Long audio: auto-chunk via ffmpeg before sending
+### 4. 转写器
+- 云端 Whisper API（DeepSeek/OpenAI）
+- 纯文本帖：跳过，直接透传
+- 视频：音频 → 文字稿
+- 图片：可选 vision 模型描述
+- 长音频：通过 ffmpeg 自动切片后发送
 
-### 5. Summarizer
-- Cloud LLM API (DeepSeek/OpenAI compatible)
-- **Single mode:** one post → one summary + 3-5 tags
-- **Digest mode:** ≥3 new posts from same user → one grouped digest
-- Prompt templates stored as Markdown, user-editable
+### 5. 总结器
+- 云端 LLM API（兼容 DeepSeek/OpenAI）
+- **单条模式：** 一条帖 → 一段摘要 + 3-5 个标签
+- **归并模式：** 同一用户 ≥3 条新帖 → 一条归并摘要
+- Prompt 模板以 Markdown 存储，用户可自行编辑
 
-### 6. Feed Server + Web UI
-- REST API (Express or Hono)
-- Vue 3 SPA with 3 pages: Feed, User Management, Settings
+### 6. Feed 服务 + Web 界面
+- REST API（Express 或 Hono）
+- Vue 3 SPA，3 个页面：信息流、用户管理、设置
 
-## Data Model
+## 数据模型
 
-### `followed_user`
-| Column | Type | Notes |
+### `followed_user` 关注用户
+| 列 | 类型 | 说明 |
 |---|---|---|
 | id | TEXT PK | |
 | platform | TEXT | xiaohongshu \| bilibili \| douyin |
-| platform_user_id | TEXT | |
+| platform_user_id | TEXT | 平台用户 ID |
 | profile | JSON | { nickname, avatar, bio, ... } |
-| group_id | TEXT FK | nullable |
-| enabled | INTEGER | 0 or 1 |
+| group_id | TEXT FK | 可为空 |
+| enabled | INTEGER | 0 停用 / 1 启用 |
 | last_fetched_at | TEXT | |
 | created_at | TEXT | |
 | updated_at | TEXT | |
 
-### `raw_post`
-| Column | Type | Notes |
+### `raw_post` 原始帖子
+| 列 | 类型 | 说明 |
 |---|---|---|
 | id | TEXT PK | |
 | platform | TEXT | |
 | platform_post_id | TEXT | |
 | author_id | TEXT FK | |
 | type | TEXT | video \| image_text \| text |
-| data | JSON | All platform-specific fields |
-| media_urls | JSON | Flat array for downloader |
+| data | JSON | 平台相关的全部字段 |
+| media_urls | JSON | 扁平数组，供下载器使用 |
 | permalink | TEXT | |
 | published_at | TEXT | |
 | fetched_at | TEXT | |
 | UNIQUE | (platform, platform_post_id) | |
 
-### `media_cache`
-| Column | Type | Notes |
+### `media_cache` 媒体缓存
+| 列 | 类型 | 说明 |
 |---|---|---|
 | id | TEXT PK | |
 | post_id | TEXT FK | |
@@ -105,17 +105,17 @@ Extension → Fetcher → Downloader → Transcriber → Summarizer → Feed Ser
 | file_size | INTEGER | |
 | created_at | TEXT | |
 
-### `feed_item`
-| Column | Type | Notes |
+### `feed_item` Feed 条目
+| 列 | 类型 | 说明 |
 |---|---|---|
 | id | TEXT PK | |
 | raw_post_ids | JSON | [id, ...] |
 | author_id | TEXT FK | |
 | type | TEXT | single \| user_digest |
 | title | TEXT | |
-| summary | TEXT | AI-generated |
-| transcript | TEXT | Nullable, for video |
-| ai_tags | JSON | ["tag1", "tag2"] |
+| summary | TEXT | AI 生成摘要 |
+| transcript | TEXT | 视频文字稿，可为空 |
+| ai_tags | JSON | ["标签1", "标签2"] |
 | source_platform | TEXT | |
 | source_urls | JSON | [url, ...] |
 | media_local_paths | JSON | |
@@ -124,8 +124,8 @@ Extension → Fetcher → Downloader → Transcriber → Summarizer → Feed Ser
 | published_at | TEXT | |
 | created_at | TEXT | |
 
-### `user_group`
-| Column | Type | Notes |
+### `user_group` 用户分组
+| 列 | 类型 | 说明 |
 |---|---|---|
 | id | TEXT PK | |
 | name | TEXT | |
@@ -133,59 +133,59 @@ Extension → Fetcher → Downloader → Transcriber → Summarizer → Feed Ser
 | sort_order | INTEGER | |
 | created_at | TEXT | |
 
-## Error Handling
+## 错误处理
 
-Three categories across the pipeline:
+整个 Pipeline 统一三类错误：
 
-| Category | Examples | Behavior |
+| 类别 | 示例 | 处理方式 |
 |---|---|---|
-| **User-recoverable** | 401 (session expired) | Pause, notify user, wait for re-login |
-| **System-handled** | 429, rate limit, captcha | Exponential backoff + circuit breaker |
-| **Transient** | 5xx, network error | Log, skip, retry next cycle |
+| **用户可恢复** | 401（Session 过期） | 暂停、通知用户、等待重新登录 |
+| **系统可处理** | 429、限流、验证码 | 指数退避 + 熔断 |
+| **临时错误** | 5xx、网络错误 | 记录日志、跳过、下个周期重试 |
 
-Per-platform circuit breaker: after N consecutive rate-limit errors, pause platform for 6 hours. Other platforms unaffected.
+按平台熔断：连续 N 次限流错误后，暂停该平台 6 小时，不影响其他平台。
 
-## Edge Cases
+## 边界情况
 
-- **Duplicate content across platforms:** dedup by content hash within time window
-- **Very long video:** chunked transcription → chunk summaries → final summary
-- **No new content:** quiet skip, update last_fetched_at
-- **First-time setup (many follows):** fetch last 3 days only, max 50 posts/cycle, UI progress indicator
-- **Extension not running:** Web UI still works, shows platform connection status
+- **跨平台重复内容：** 按内容哈希在时间窗口内去重
+- **超长视频：** 分段转写 → 分段摘要 → 最终合并摘要
+- **无新内容：** 静默跳过，仅更新 last_fetched_at
+- **首次设置（大量关注）：** 仅拉取最近 3 天，每周期最多处理 50 条，界面显示进度
+- **插件未运行：** Web 界面仍可访问，显示各平台连接状态
 
-## Project Structure
+## 项目结构
 
 ```
 agent-feeds/
 ├── packages/
-│   ├── shared/src/       # Shared TypeScript types
-│   ├── server/src/       # Local service (Express/Hono + sqlite3)
-│   │   ├── db/           # Connection, migrations, repositories
-│   │   ├── fetcher/      # Scheduler + platform adapters
-│   │   ├── downloader/   # Queue + ffmpeg wrapper
-│   │   ├── transcriber/  # Cloud Whisper API client
-│   │   ├── summarizer/   # LLM client + prompt templates
-│   │   ├── api/          # REST routes + middleware
-│   │   └── media/        # Local file cache
-│   ├── web/src/          # Vue 3 SPA (Vite + Vue Router)
-│   │   ├── pages/        # FeedPage, UsersPage, SettingsPage
-│   │   ├── components/   # FeedCard, FeedList, UserDigest, etc.
-│   │   └── composables/  # Vue composables
-│   └── extension/src/    # Manifest V3 browser extension
+│   ├── shared/src/       # 共享 TypeScript 类型
+│   ├── server/src/       # 本地服务（Express/Hono + sqlite3）
+│   │   ├── db/           # 数据库连接、迁移、仓库
+│   │   ├── fetcher/      # 调度器 + 平台适配器
+│   │   ├── downloader/   # 下载队列 + ffmpeg 封装
+│   │   ├── transcriber/  # 云端 Whisper API 客户端
+│   │   ├── summarizer/   # LLM 客户端 + prompt 模板
+│   │   ├── api/          # REST 路由 + 中间件
+│   │   └── media/        # 本地文件缓存
+│   ├── web/src/          # Vue 3 SPA（Vite + Vue Router）
+│   │   ├── pages/        # FeedPage、UsersPage、SettingsPage
+│   │   ├── components/   # FeedCard、FeedList、UserDigest 等
+│   │   └── composables/  # Vue 组合式函数
+│   └── extension/src/    # Manifest V3 浏览器插件
 ├── package.json          # pnpm workspaces
 └── tsconfig.json
 ```
 
-## API Routes
+## API 路由
 
-| Method | Path | Purpose |
+| 方法 | 路径 | 用途 |
 |---|---|---|
-| GET | /api/feed | Feed query (filter, cursor, limit) |
-| GET | /api/feed/:id | Single feed item detail |
-| PATCH | /api/feed/:id | Mark read/saved |
-| GET | /api/users | Followed users list |
-| PATCH | /api/users/:id | Enable/disable, change group |
-| GET/POST | /api/groups | Group CRUD |
-| POST | /api/fetch/trigger | Manual fetch trigger |
-| GET | /api/settings | Get settings |
-| PATCH | /api/settings | Update settings (API keys, frequency, prompts) |
+| GET | /api/feed | Feed 查询（筛选、游标、条数） |
+| GET | /api/feed/:id | 单条 Feed 详情 |
+| PATCH | /api/feed/:id | 标记已读/收藏 |
+| GET | /api/users | 关注用户列表 |
+| PATCH | /api/users/:id | 启用/停用、更改分组 |
+| GET/POST | /api/groups | 分组增删改查 |
+| POST | /api/fetch/trigger | 手动触发拉取 |
+| GET | /api/settings | 获取设置 |
+| PATCH | /api/settings | 更新设置（API Key、频率、Prompt） |
