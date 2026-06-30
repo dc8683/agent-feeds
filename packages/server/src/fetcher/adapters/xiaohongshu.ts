@@ -1,101 +1,25 @@
 import { PlatformAdapter, PlatformUser, RawPost, SessionTokens } from '@agent-feeds/shared';
-import { spawn } from 'child_process';
-import path from 'path';
 
-const XHS_HOST = 'https://www.xiaohongshu.com';
-
-function runScraper(url: string): Promise<any[]> {
-  return new Promise((resolve, reject) => {
-    const scriptPath = path.join(__dirname, 'xhs-scraper.py');
-    const proc = spawn('uv', ['run', 'python3', scriptPath, url], {
-      cwd: path.join(__dirname, '../../..'),
-      timeout: 60000,
-    });
-
-    let stdout = '';
-    let stderr = '';
-
-    proc.stdout.on('data', (chunk: Buffer) => { stdout += chunk.toString(); });
-    proc.stderr.on('data', (chunk: Buffer) => { stderr += chunk.toString(); });
-
-    proc.on('close', (code) => {
-      if (code !== 0) {
-        console.error('[xhs-scraper] Exit code:', code, stderr);
-        resolve([]);
-        return;
-      }
-      try {
-        resolve(JSON.parse(stdout));
-      } catch {
-        console.error('[xhs-scraper] Parse error:', stdout.slice(0, 200));
-        resolve([]);
-      }
-    });
-
-    proc.on('error', (err) => {
-      console.error('[xhs-scraper] Spawn error:', err.message);
-      resolve([]);
-    });
-  });
-}
-
+/**
+ * 小红书 adapter.
+ *
+ * Data flow: Server queues profile URL → Extension polls & opens tab →
+ * Content script scrapes DOM → pushes notes to /api/extension/data →
+ * Server creates RawPost + FeedItem.
+ *
+ * fetchPosts() returns [] because the actual fetch is extension-driven,
+ * not server-driven.
+ */
 export const xiaohongshuAdapter: PlatformAdapter = {
   platform: 'xiaohongshu',
 
   async fetchFollowList(_session: SessionTokens): Promise<PlatformUser[]> {
-    // 小红书网页版无关注列表，需用户手动输入博主主页 URL
     return [];
   },
 
-  async fetchPosts(userId: string, _session: SessionTokens): Promise<RawPost[]> {
-    const url = `${XHS_HOST}/user/profile/${userId}`;
-    const result = await runScraper(url);
-
-    if (!result) return [];
-
-    const notes = result.notes || [];
-    const profile = result.profile;
-
-    // Update user profile if we got a nickname
-    if (profile?.nickname) {
-      const { updateUser } = await import('../../db/repositories/users');
-      const { getUserByPlatformId } = await import('../../db/repositories/users');
-      const user = await getUserByPlatformId('xiaohongshu', userId);
-      if (user && user.profile.nickname !== profile.nickname) {
-        // Update via raw SQL since updateUser doesn't support profile
-        const { getDb } = await import('../../db/connection');
-        await new Promise<void>((resolve, reject) => {
-          getDb().run(
-            "UPDATE followed_user SET profile = ?, updated_at = datetime('now') WHERE id = ?",
-            [JSON.stringify(profile), user.id],
-            (err: any) => { if (err) reject(err); else resolve(); }
-          );
-        });
-      }
-    }
-
-    if (notes.length === 0) return [];
-
-    const now = new Date().toISOString();
-
-    return notes.map((n: any) => ({
-      id: '',
-      platform: 'xiaohongshu' as const,
-      platformPostId: n.noteId,
-      authorId: userId,
-      type: 'image_text' as const,
-      data: {
-        noteId: n.noteId,
-        coverUrl: n.coverUrl,
-        footerText: n.footerText,
-        isPinned: n.isPinned,
-        desc: n.footerText,
-        body_text: n.footerText,
-      },
-      mediaUrls: n.coverUrl ? [n.coverUrl] : [],
-      permalink: n.noteUrl || `${XHS_HOST}/explore/${n.noteId}`,
-      publishedAt: now,
-      fetchedAt: now,
-    }));
+  async fetchPosts(_userId: string, _session: SessionTokens): Promise<RawPost[]> {
+    // Extension-driven: content script scrapes and pushes data.
+    // Server-side fetchPosts is a no-op.
+    return [];
   },
 };

@@ -1,11 +1,17 @@
 import { Router, Request, Response } from 'express';
-import { xiaohongshuAdapter } from '../../fetcher/adapters/xiaohongshu';
 import { getUserById } from '../../db/repositories/users';
-import { fetchForUser } from '../../fetcher/orchestrator';
+
+// In-memory fetch queue — server pushes URLs, extension polls and navigates
+const fetchQueue: { url: string; userId: string }[] = [];
+
+export function getFetchQueue() {
+  return fetchQueue;
+}
 
 export function createFetchRoutes(): Router {
   const router = Router();
 
+  // User clicks "fetch" → server queues the URL
   router.post('/trigger', async (req: Request, res: Response) => {
     try {
       const { userId } = req.body;
@@ -18,19 +24,22 @@ export function createFetchRoutes(): Router {
         return res.status(404).json({ error: 'User not found' });
       }
 
-      // For CDP-based platforms, session is not needed (browser handles auth)
-      const session = { cookies: '', userAgent: '' };
+      const url = `https://www.xiaohongshu.com/user/profile/${user.platformUserId}`;
+      fetchQueue.push({ url, userId });
 
-      // Run fetch in background, respond immediately
-      fetchForUser(user, session).then(() => {
-        console.log(`[Fetch] Completed for user ${userId}`);
-      }).catch(err => {
-        console.error(`[Fetch] Error for user ${userId}:`, err.message);
-      });
-
-      res.json({ ok: true, message: `Fetch started for ${user.profile.nickname || userId}` });
+      res.json({ ok: true, message: `Queued fetch for ${user.profile.nickname || userId}` });
     } catch (err) {
       res.status(500).json({ error: 'Failed to trigger fetch' });
+    }
+  });
+
+  // Extension polls this to get pending fetch URLs
+  router.get('/pending', (_req: Request, res: Response) => {
+    const item = fetchQueue.shift();
+    if (item) {
+      res.json({ pending: true, url: item.url, userId: item.userId });
+    } else {
+      res.json({ pending: false });
     }
   });
 

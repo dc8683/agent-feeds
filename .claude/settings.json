@@ -1,12 +1,5 @@
 {
   "enabledPlugins": {
-    "superpowers@claude-plugins-official": true,
-    "superpowers-chrome@superpowers-marketplace": true
-  },
-  "mcpServers": {
-    "cdp-bridge": {
-      "command": "uv",
-      "args": ["run", "--directory", "/Users/jinchao.chen/Desktop/tools/cdp-bridge-mcp", "cdp-bridge"]
-    }
+    "superpowers@claude-plugins-official": true
   }
 }

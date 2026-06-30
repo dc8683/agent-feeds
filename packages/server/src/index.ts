@@ -51,14 +51,17 @@ async function main() {
   // Extension data endpoint — receives scraped notes from content script
   app.post('/api/extension/data', async (req, res) => {
     try {
-      const { platform, userId, profile, notes } = req.body;
+      const { platform, userId, profile, notes, replace } = req.body;
 
       if (!notes || !Array.isArray(notes) || notes.length === 0) {
         return res.json({ ok: true, message: 'No notes to process' });
       }
 
+      // Filter out pinned notes, take last 10
+      const filtered = notes.filter((n: any) => !n.isPinned).slice(-10);
+
       // Upsert followed_user
-      const { getUserByPlatformId, createUser, updateUser } = await import('./db/repositories/users');
+      const { getUserByPlatformId, createUser } = await import('./db/repositories/users');
       const { v4: uuid } = await import('uuid');
       const { getDb } = await import('./db/connection');
 
@@ -76,24 +79,29 @@ async function main() {
         await createUser(newUser);
         user = newUser;
       } else if (profile?.nickname && user.profile.nickname !== profile.nickname) {
-        // Update nickname
         getDb().run(
           "UPDATE followed_user SET profile = ?, updated_at = datetime('now') WHERE id = ?",
           [JSON.stringify(profile), user.id]
         );
       }
 
+      // Replace mode: clear old data for this user
+      if (replace) {
+        getDb().run("DELETE FROM feed_item WHERE author_id = ?", [user!.id]);
+        getDb().run("DELETE FROM raw_post WHERE author_id = ?", [user!.id]);
+      }
+
       // Convert notes to RawPost and insert
       const { insertPosts } = await import('./db/repositories/posts');
       const now = new Date().toISOString();
 
-      const rawPosts: any[] = notes.map((n: any) => ({
+      const rawPosts: any[] = filtered.map((n: any) => ({
         id: uuid(),
         platform,
         platformPostId: n.noteId,
         authorId: user!.id,
         type: 'image_text',
-        data: { noteId: n.noteId, coverUrl: n.coverUrl, footerText: n.footerText, isPinned: n.isPinned, desc: n.footerText, body_text: n.footerText },
+        data: { noteId: n.noteId, coverUrl: n.coverUrl, footerText: n.footerText, desc: n.footerText, body_text: n.footerText },
         mediaUrls: n.coverUrl ? [n.coverUrl] : [],
         permalink: n.noteUrl || `https://www.xiaohongshu.com/explore/${n.noteId}`,
         publishedAt: now,
@@ -112,8 +120,8 @@ async function main() {
         }
       }
 
-      console.log(`[Extension Data] Processed ${notes.length} notes from ${platform}/${userId}`);
-      res.json({ ok: true, processed: notes.length });
+      console.log(`[Extension Data] Processed ${filtered.length} notes from ${platform}/${userId}`);
+      res.json({ ok: true, processed: filtered.length });
     } catch (err: any) {
       console.error('[Extension Data] Error:', err.message);
       res.status(500).json({ error: 'Failed to process data' });

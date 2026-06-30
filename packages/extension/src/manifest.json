@@ -3,7 +3,7 @@
   "name": "Agent Feeds",
   "version": "0.1.0",
   "description": "聚合小红书/B站/抖音关注内容到本地 Feed",
-  "permissions": ["cookies", "storage", "alarms"],
+  "permissions": ["cookies", "storage", "alarms", "tabs"],
   "host_permissions": [
     "*://*.xiaohongshu.com/*",
     "*://*.bilibili.com/*",

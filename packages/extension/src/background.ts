@@ -18,16 +18,13 @@ async function handleSessionUpdate(platform: string, cookies: string, userAgent:
     [`session_${platform}`]: { cookies, userAgent, updatedAt: Date.now() },
   });
 
-  // Forward to local service
   try {
     await fetch(`${LOCAL_SERVICE}/api/extension/session`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ platform, cookies, userAgent }),
     });
-  } catch {
-    // Local service may not be running
-  }
+  } catch { /* server may not be running */ }
 }
 
 async function forwardToLocalService(endpoint: string, data: any) {
@@ -37,10 +34,21 @@ async function forwardToLocalService(endpoint: string, data: any) {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(data),
     });
-  } catch {
-    // Local service may not be running
-  }
+  } catch { /* server may not be running */ }
 }
 
-// Initialized
+// ====== Poll for pending fetch tasks ======
+setInterval(async () => {
+  try {
+    const res = await fetch(`${LOCAL_SERVICE}/api/fetch/pending`);
+    if (!res.ok) return;
+    const { pending, url } = await res.json();
+    if (pending && url) {
+      console.log(`[Agent Feeds] Fetching: ${url}`);
+      // Open the profile page — content script will scrape it
+      await chrome.tabs.create({ url, active: false });
+    }
+  } catch { /* server may not be running */ }
+}, 5000);
+
 console.log('Agent Feeds background service worker started');
