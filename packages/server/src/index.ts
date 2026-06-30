@@ -93,7 +93,7 @@ async function main() {
         platformPostId: n.noteId,
         authorId: user!.id,
         type: 'image_text',
-        data: { noteId: n.noteId, coverUrl: n.coverUrl, footerText: n.footerText, isPinned: n.isPinned },
+        data: { noteId: n.noteId, coverUrl: n.coverUrl, footerText: n.footerText, isPinned: n.isPinned, desc: n.footerText, body_text: n.footerText },
         mediaUrls: n.coverUrl ? [n.coverUrl] : [],
         permalink: n.noteUrl || `https://www.xiaohongshu.com/explore/${n.noteId}`,
         publishedAt: now,

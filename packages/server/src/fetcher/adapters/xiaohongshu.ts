@@ -89,6 +89,8 @@ export const xiaohongshuAdapter: PlatformAdapter = {
         coverUrl: n.coverUrl,
         footerText: n.footerText,
         isPinned: n.isPinned,
+        desc: n.footerText,
+        body_text: n.footerText,
       },
       mediaUrls: n.coverUrl ? [n.coverUrl] : [],
       permalink: n.noteUrl || `${XHS_HOST}/explore/${n.noteId}`,
