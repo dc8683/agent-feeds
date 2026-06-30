@@ -1,0 +1,28 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="UTF-8" />
+  <style>
+    body { width: 240px; padding: 16px; font-family: -apple-system, sans-serif; font-size: 13px; }
+    h3 { margin: 0 0 12px; font-size: 14px; }
+    .platform { display: flex; align-items: center; justify-content: space-between; padding: 6px 0; }
+    .dot { width: 8px; height: 8px; border-radius: 50%; display: inline-block; margin-right: 6px; }
+    .green { background: #22c55e; }
+    .yellow { background: #eab308; }
+    .red { background: #ef4444; }
+    .status-text { font-size: 11px; color: #999; }
+  </style>
+</head>
+<body>
+  <h3>Agent Feeds</h3>
+  <div id="status">
+    <div class="platform"><span><span class="dot red"></span>小红书</span><span class="status-text">未连接</span></div>
+    <div class="platform"><span><span class="dot red"></span>B站</span><span class="status-text">未连接</span></div>
+    <div class="platform"><span><span class="dot red"></span>抖音</span><span class="status-text">未连接</span></div>
+  </div>
+  <div style="margin-top: 12px; font-size: 11px; color: #999;">
+    本地服务: <span id="service-status">检测中</span>
+  </div>
+  <script src="popup.js"></script>
+</body>
+</html>
