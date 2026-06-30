@@ -69,13 +69,13 @@
 import { onMounted } from 'vue';
 import { useSettings } from '../composables/useSettings';
 
-const s = useSettings();
+const settings = useSettings();
 
 function update(key: string, value: string) {
-  s.save({ [key]: value });
+  settings.save({ [key]: value });
 }
 
 onMounted(() => {
-  s.load();
+  settings.load();
 });
 </script>

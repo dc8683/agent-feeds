@@ -3,7 +3,7 @@
     暂无订阅，从下方平台关注列表中添加
   </div>
 
-  <div v-for="group in groupedUsers" :key="group.id" class="group-section">
+  <div v-for="group in groupedUsers" :key="group.id ?? '__unassigned'" class="group-section">
     <div class="card">
       <div class="group-header">
         <span :style="{ color: group.color || '#6366f1' }">{{ group.name }} · {{ group.users.length }}人</span>
