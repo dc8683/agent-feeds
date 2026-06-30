@@ -13,6 +13,7 @@
         <span>
           <span :class="['status-dot', user.enabled ? 'green' : 'red']"></span>
           @{{ user.profile.nickname }}
+          <span style="font-size: 10px; color: var(--color-text-muted); margin-left: 4px; padding: 1px 6px; background: #f0f0f0; border-radius: 4px;">{{ platformLabel(user.platform) }}</span>
         </span>
         <button class="btn btn-ghost btn-sm" @click="$emit('fetch-user', user.id)">🔄</button>
         <button class="btn btn-ghost btn-sm" @click="$emit('toggle', user.id, !user.enabled)">取消</button>
@@ -31,6 +32,11 @@ const props = defineProps<{
 }>();
 
 defineEmits(['toggle', 'set-group', 'fetch-user']);
+
+function platformLabel(p: string): string {
+  const map: Record<string, string> = { xiaohongshu: '小红书', bilibili: 'B站', douyin: '抖音' };
+  return map[p] || p;
+}
 
 const groupedUsers = computed(() => {
   const map = new Map<string | null, FollowedUser[]>();
