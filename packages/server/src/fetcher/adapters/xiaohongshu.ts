@@ -49,9 +49,32 @@ export const xiaohongshuAdapter: PlatformAdapter = {
 
   async fetchPosts(userId: string, _session: SessionTokens): Promise<RawPost[]> {
     const url = `${XHS_HOST}/user/profile/${userId}`;
-    const notes = await runScraper(url);
+    const result = await runScraper(url);
 
-    if (!notes || notes.length === 0) return [];
+    if (!result) return [];
+
+    const notes = result.notes || [];
+    const profile = result.profile;
+
+    // Update user profile if we got a nickname
+    if (profile?.nickname) {
+      const { updateUser } = await import('../../db/repositories/users');
+      const { getUserByPlatformId } = await import('../../db/repositories/users');
+      const user = await getUserByPlatformId('xiaohongshu', userId);
+      if (user && user.profile.nickname !== profile.nickname) {
+        // Update via raw SQL since updateUser doesn't support profile
+        const { getDb } = await import('../../db/connection');
+        await new Promise<void>((resolve, reject) => {
+          getDb().run(
+            "UPDATE followed_user SET profile = ?, updated_at = datetime('now') WHERE id = ?",
+            [JSON.stringify(profile), user.id],
+            (err: any) => { if (err) reject(err); else resolve(); }
+          );
+        });
+      }
+    }
+
+    if (notes.length === 0) return [];
 
     const now = new Date().toISOString();
 

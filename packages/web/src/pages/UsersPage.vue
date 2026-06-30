@@ -13,6 +13,7 @@
       :groups="users.groups.value"
       @toggle="users.toggleUser"
       @set-group="users.setUserGroup"
+      @fetch-user="triggerFetch"
     />
 
     <!-- Add blogger by URL (小红书) or from follow list -->
@@ -84,6 +85,16 @@ async function addByUrl() {
     addError.value = err.message || '添加失败';
   } finally {
     adding.value = false;
+  }
+}
+
+async function triggerFetch(userId: string) {
+  try {
+    await apiPost('/fetch/trigger', { userId });
+    addSuccess.value = '拉取已触发';
+    setTimeout(() => { addSuccess.value = ''; }, 3000);
+  } catch (err: any) {
+    addError.value = '拉取失败';
   }
 }
 

@@ -72,11 +72,12 @@ export function createUserRoutes(): Router {
       }
 
       const { v4: uuid } = await import('uuid');
+
       const newUser = {
         id: uuid(),
         platform: platform as 'xiaohongshu' | 'bilibili' | 'douyin',
         platformUserId: userId,
-        profile: { nickname: '', avatar: '' },
+        profile: { nickname: '(加载中...)' as string, avatar: '' },
         groupId: null,
         enabled: true,
         lastFetchedAt: null,

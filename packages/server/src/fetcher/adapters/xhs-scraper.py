@@ -112,6 +112,22 @@ def scrape_profile(url: str) -> list:
     rid += 1
     time.sleep(5)  # Wait for page load
 
+    # Extract profile info from page title
+    profile = {"nickname": "", "avatar": ""}
+    title_result = call_tool(proc, "browser_execute_js", {
+        "script": "document.title",
+        "tab_id": xhs_tab,
+    }, rid)
+    rid += 1
+    # call_tool may return dict with js_return or raw string
+    title = None
+    if isinstance(title_result, dict):
+        title = title_result.get("js_return")
+    elif isinstance(title_result, str):
+        title = title_result
+    if title and isinstance(title, str) and " - 小红书" in title:
+        profile["nickname"] = title.split(" - 小红书")[0].strip()
+
     # Scroll to load more notes
     for _ in range(3):
         call_tool(proc, "browser_execute_js", {
@@ -165,23 +181,27 @@ def scrape_profile(url: str) -> list:
 
     proc.terminate()
 
+    notes = []
     if isinstance(result, list):
-        return result
-    if isinstance(result, dict):
+        notes = result
+    elif isinstance(result, dict):
         if result.get("notes") and isinstance(result["notes"], list):
-            return result["notes"]
-        # Check CDP tool result structure
-        js_return = result.get("js_return")
-        if js_return:
-            try:
-                parsed = json.loads(js_return)
-                return parsed if isinstance(parsed, list) else []
-            except (json.JSONDecodeError, TypeError):
-                pass
-    # Debug: write result to stderr
-    print(f"[xhs-scraper] Unexpected result type: {type(result)}", file=sys.stderr)
-    print(f"[xhs-scraper] Result preview: {str(result)[:300]}", file=sys.stderr)
-    return []
+            notes = result["notes"]
+        else:
+            js_return = result.get("js_return")
+            if js_return:
+                try:
+                    parsed = json.loads(js_return)
+                    notes = parsed if isinstance(parsed, list) else []
+                except (json.JSONDecodeError, TypeError):
+                    pass
+
+    if not isinstance(notes, list):
+        print(f"[xhs-scraper] Unexpected result type: {type(result)}", file=sys.stderr)
+        print(f"[xhs-scraper] Result preview: {str(result)[:300]}", file=sys.stderr)
+        notes = []
+
+    return {"profile": profile, "notes": notes}
 
 
 if __name__ == "__main__":

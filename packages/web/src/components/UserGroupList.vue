@@ -14,6 +14,7 @@
           <span :class="['status-dot', user.enabled ? 'green' : 'red']"></span>
           @{{ user.profile.nickname }}
         </span>
+        <button class="btn btn-ghost btn-sm" @click="$emit('fetch-user', user.id)">🔄</button>
         <button class="btn btn-ghost btn-sm" @click="$emit('toggle', user.id, !user.enabled)">取消</button>
       </div>
     </div>
@@ -29,7 +30,7 @@ const props = defineProps<{
   groups: UserGroup[];
 }>();
 
-defineEmits(['toggle', 'set-group']);
+defineEmits(['toggle', 'set-group', 'fetch-user']);
 
 const groupedUsers = computed(() => {
   const map = new Map<string | null, FollowedUser[]>();
