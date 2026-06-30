@@ -2,9 +2,11 @@
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-**Goal:** Build a local app that aggregates followed users' posts from 小红书/B站/抖音, processes through cloud AI, and serves a unified feed via mobile-first web UI.
+**Goal:** MVP — 仅小红书图文内容，通过云端 LLM 总结，在本地 Web 页面呈现统一信息流。完整 Pipeline 架构就位，视频/多平台为后续迭代。
 
-**Architecture:** Pipeline — Extension → Fetcher → Downloader → Transcriber → Summarizer → Feed Server + Web UI. Monorepo with shared types, server, Vue SPA, and browser extension.
+**MVP Scope:** 小红书 only, text + image_text posts. Transcriber present but passes through (video deferred). Downloader deferred.
+
+**Architecture:** Pipeline — Extension(小红书) → Fetcher → Summarizer(LLM) → Feed Server + Web UI. Monorepo with shared types, server, Vue SPA, and browser extension.
 
 **Tech Stack:** TypeScript, Node.js, Express, sqlite3, Vue 3 + Vite + Vue Router, pnpm workspaces, Manifest V3
 
@@ -1067,13 +1069,13 @@ export async function runFullPipeline(): Promise<void> {
 
 ---
 
-### Task 6: Pipeline — Platform Adapters (Stubs)
+### Task 6: Pipeline — 小红书 Adapter
 
 **Files:**
 - Create: `packages/server/src/fetcher/adapters/interface.ts`
 - Create: `packages/server/src/fetcher/adapters/xiaohongshu.ts`
-- Create: `packages/server/src/fetcher/adapters/bilibili.ts`
-- Create: `packages/server/src/fetcher/adapters/douyin.ts`
+- Create: `packages/server/src/fetcher/adapters/bilibili.ts` (stub, deferred)
+- Create: `packages/server/src/fetcher/adapters/douyin.ts` (stub, deferred)
 
 - [ ] **Step 1: Define adapter interface** (references types from shared, already defined)
 - [ ] **Step 2: Create stub adapters** — each returns empty array; real scraping logic requires per-platform research and will be filled in later. The stub provides the interface contract so the pipeline can be tested end-to-end.
@@ -1101,171 +1103,132 @@ bilibili.ts and douyin.ts follow the same pattern, with platform set to 'bilibil
 
 ---
 
-### Task 7: Pipeline — Downloader
+### Task 7: Pipeline — Downloader (MVP: 模块就位，内部跳过)
 
 **Files:**
 - Create: `packages/server/src/downloader/manager.ts`
 - Create: `packages/server/src/downloader/ffmpeg.ts`
 
-- [ ] **Step 1: Create download manager**
+- [ ] **Step 1: Create download manager — no-op**
 
 ```typescript
 // packages/server/src/downloader/manager.ts
 import { RawPost } from '@agent-feeds/shared';
-import { insertMedia, updateMediaStatus } from '../db/repositories/media';
-import { v4 as uuid } from 'uuid';
-import path from 'path';
-import os from 'os';
-import fs from 'fs';
-import https from 'https';
-import http from 'http';
 
-const MEDIA_DIR = path.join(os.homedir(), '.agent-feeds', 'media');
-const MAX_CONCURRENT = 3;
-
-// Per-platform semaphore
-const platformQueues: Map<string, { running: number; waiting: (() => void)[] }> = new Map();
-
-function getQueue(platform: string) {
-  if (!platformQueues.has(platform)) {
-    platformQueues.set(platform, { running: 0, waiting: [] });
-  }
-  return platformQueues.get(platform)!;
-}
-
-async function acquireSlot(platform: string): Promise<void> {
-  const q = getQueue(platform);
-  if (q.running < MAX_CONCURRENT) { q.running++; return; }
-  return new Promise(resolve => q.waiting.push(resolve));
-}
-
-function releaseSlot(platform: string): void {
-  const q = getQueue(platform);
-  q.running--;
-  const next = q.waiting.shift();
-  if (next) { q.running++; next(); }
-}
-
-async function downloadFile(url: string, destPath: string): Promise<void> {
-  return new Promise((resolve, reject) => {
-    const file = fs.createWriteStream(destPath);
-    const proto = url.startsWith('https') ? https : http;
-    proto.get(url, { timeout: 30000 }, (response) => {
-      // Handle redirects
-      if (response.statusCode && response.statusCode >= 300 && response.statusCode < 400 && response.headers.location) {
-        return downloadFile(response.headers.location, destPath).then(resolve).catch(reject);
-      }
-      response.pipe(file);
-      file.on('finish', () => { file.close(); resolve(); });
-    }).on('error', (err) => { fs.unlink(destPath, () => {}); reject(err); });
-  });
-}
-
-export async function downloadMediaForPosts(posts: RawPost[]): Promise<void> {
-  if (!fs.existsSync(MEDIA_DIR)) fs.mkdirSync(MEDIA_DIR, { recursive: true });
-
-  for (const post of posts) {
-    for (const url of post.mediaUrls) {
-      const mediaId = uuid();
-      const ext = path.extname(new URL(url).pathname) || '.mp4';
-      const localPath = path.join(MEDIA_DIR, `${mediaId}${ext}`);
-
-      await insertMedia({
-        id: mediaId, postId: post.id, originalUrl: url,
-        localPath: null, type: 'video', status: 'pending', fileSize: null, createdAt: new Date().toISOString(),
-      });
-
-      const platform = post.platform;
-      await acquireSlot(platform);
-
-      downloadFile(url, localPath)
-        .then(async () => {
-          const stat = fs.statSync(localPath);
-          await updateMediaStatus(mediaId, 'done', localPath, stat.size);
-          releaseSlot(platform);
-        })
-        .catch(async (err) => {
-          console.error(`Download failed: ${url}`, err.message);
-          await updateMediaStatus(mediaId, 'failed', null, null);
-          releaseSlot(platform);
-        });
-    }
-  }
+export async function downloadMediaForPosts(_posts: RawPost[]): Promise<void> {
+  // MVP: skip, media download deferred
 }
 ```
 
-- [ ] **Step 2: Create ffmpeg wrapper**
+- [ ] **Step 2: Create ffmpeg wrapper stub**
 
 ```typescript
 // packages/server/src/downloader/ffmpeg.ts
-import { execFile } from 'child_process';
-import path from 'path';
-
-export function videoToAudio(videoPath: string, outputDir: string): Promise<string> {
-  return new Promise((resolve, reject) => {
-    const basename = path.basename(videoPath, path.extname(videoPath));
-    const outputPath = path.join(outputDir, `${basename}.wav`);
-
-    execFile('ffmpeg', [
-      '-i', videoPath,
-      '-ar', '16000',
-      '-ac', '1',
-      '-f', 'wav',
-      '-y',
-      outputPath,
-    ], { timeout: 600000 }, (err) => { // 10 min timeout
-      if (err) reject(err);
-      else resolve(outputPath);
-    });
-  });
+export async function videoToAudio(_videoPath: string, _outputDir: string): Promise<string> {
+  throw new Error('Video processing not available in MVP');
 }
 
-export function splitAudio(audioPath: string, chunkSeconds: number, outputDir: string): Promise<string[]> {
-  return new Promise((resolve, reject) => {
-    const basename = path.basename(audioPath, '.wav');
-    const pattern = path.join(outputDir, `${basename}_%03d.wav`);
-
-    execFile('ffmpeg', [
-      '-i', audioPath,
-      '-f', 'segment',
-      '-segment_time', String(chunkSeconds),
-      '-c', 'copy',
-      '-y',
-      pattern,
-    ], { timeout: 600000 }, (err) => {
-      if (err) reject(err);
-      else {
-        const fs = require('fs');
-        const files = fs.readdirSync(outputDir)
-          .filter((f: string) => f.startsWith(basename + '_'))
-          .sort()
-          .map((f: string) => path.join(outputDir, f));
-        resolve(files);
-      }
-    });
-  });
+export async function splitAudio(_audioPath: string, _chunkSeconds: number, _outputDir: string): Promise<string[]> {
+  throw new Error('Audio splitting not available in MVP');
 }
 ```
+
+- [ ] **Step 3: Commit**
 - [ ] **Step 3: Commit**
 
 ---
 
-### Task 8: Pipeline — Transcriber & Summarizer
+### Task 8: Pipeline — Transcriber & Summarizer (MVP: 模块就位，内部跳过)
 
 **Files:**
 - Create: `packages/server/src/transcriber/whisper.ts`
 - Create: `packages/server/src/summarizer/llm-client.ts`
 - Create: `packages/server/src/summarizer/single.ts`
 - Create: `packages/server/src/summarizer/digest.ts`
-- Create: `packages/server/src/summarizer/prompts/default-single.md`
-- Create: `packages/server/src/summarizer/prompts/default-digest.md`
 
-- [ ] **Step 1: Create Whisper API client** — OpenAI/DeepSeek Whisper compatible, handles chunking for long audio
-- [ ] **Step 2: Create LLM client** — OpenAI-compatible chat completions, configurable base URL for DeepSeek
-- [ ] **Step 3: Create single summarizer** — loads prompt template, substitutes content, parses JSON response
-- [ ] **Step 4: Create digest summarizer** — batches N posts, substitutes, parses JSON
-- [ ] **Step 5: Create default prompt templates** (Markdown files)
-- [ ] **Step 6: Commit**
+- [ ] **Step 1: Create Transcriber — no-op**
+
+```typescript
+// packages/server/src/transcriber/whisper.ts
+import { RawPost } from '@agent-feeds/shared';
+
+// MVP: passes through raw post text. Cloud Whisper API deferred.
+export async function transcribePost(post: RawPost): Promise<string | null> {
+  return (post.data as any).body_text || (post.data as any).desc || null;
+}
+
+export async function transcribePending(): Promise<void> {
+  // MVP: no batch processing needed
+}
+```
+
+- [ ] **Step 2: Create Summarizer — no-op, raw post → feed_item directly**
+
+```typescript
+// packages/server/src/summarizer/single.ts
+import { RawPost, FeedItem } from '@agent-feeds/shared';
+import { v4 as uuid } from 'uuid';
+import { insertFeedItem } from '../../db/repositories/feed';
+import { transcribePost } from '../../transcriber/whisper';
+
+export async function summarizePost(post: RawPost): Promise<FeedItem> {
+  const transcript = await transcribePost(post);
+  const text = transcript || '';
+
+  const feedItem: FeedItem = {
+    id: uuid(),
+    rawPostIds: [post.id],
+    authorId: post.authorId,
+    type: 'single',
+    title: (post.data as any).title || text.slice(0, 50),
+    summary: text.slice(0, 300),
+    transcript,
+    aiTags: [],
+    sourcePlatform: post.platform,
+    sourceUrls: [post.permalink],
+    mediaLocalPaths: [],
+    isRead: false,
+    isSaved: false,
+    publishedAt: post.publishedAt,
+    createdAt: new Date().toISOString(),
+  };
+
+  await insertFeedItem(feedItem);
+  return feedItem;
+}
+
+export async function summarizePending(): Promise<void> {
+  // MVP: called by pipeline, no batch processing yet
+}
+```
+
+- [ ] **Step 3: Create digest summarizer — no-op**
+
+```typescript
+// packages/server/src/summarizer/digest.ts
+// MVP: returns null, digest mode deferred
+export async function createDigest(): Promise<null> {
+  return null;
+}
+```
+
+- [ ] **Step 4: Create LLM client stub** (for future use)
+
+```typescript
+// packages/server/src/summarizer/llm-client.ts
+import { LlmConfig } from '@agent-feeds/shared';
+
+// Deferred: actual LLM API call for summarization
+export async function chatCompletion(
+  _config: LlmConfig,
+  _systemPrompt: string,
+  _userMessage: string
+): Promise<string> {
+  throw new Error('LLM summarization not available in MVP');
+}
+```
+
+- [ ] **Step 5: Commit**
 
 ---
 
