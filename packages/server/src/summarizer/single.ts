@@ -1,7 +1,7 @@
 import { RawPost, FeedItem } from '@agent-feeds/shared';
 import { v4 as uuid } from 'uuid';
-import { insertFeedItem } from '../../db/repositories/feed';
-import { transcribePost } from '../../transcriber/whisper';
+import { insertFeedItem } from '../db/repositories/feed';
+import { transcribePost } from '../transcriber/whisper';
 
 export async function summarizePost(post: RawPost): Promise<FeedItem> {
   const transcript = await transcribePost(post);

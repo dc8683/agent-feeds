@@ -19,7 +19,7 @@
 </template>
 
 <script setup lang="ts">
-import { onMounted, ref } from 'vue';
+import { onMounted, onUnmounted, ref } from 'vue';
 import { useFeed } from '../composables/useFeed';
 import PlatformStatus from '../components/PlatformStatus.vue';
 import FilterBar from '../components/FilterBar.vue';
@@ -34,7 +34,27 @@ const platformStatuses = ref<PS[]>([
   { platform: 'douyin', status: 'disconnected', message: '等待连接' },
 ]);
 
+let statusTimer: ReturnType<typeof setInterval> | null = null;
+
+async function fetchPlatformStatus() {
+  try {
+    const res = await fetch('/api/extension/status');
+    if (res.ok) {
+      const data = await res.json();
+      platformStatuses.value = data.statuses;
+    }
+  } catch {
+    // Server may not be running yet
+  }
+}
+
 onMounted(() => {
   feed.refresh();
+  fetchPlatformStatus();
+  statusTimer = setInterval(fetchPlatformStatus, 10000); // poll every 10s
+});
+
+onUnmounted(() => {
+  if (statusTimer) clearInterval(statusTimer);
 });
 </script>

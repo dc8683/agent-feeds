@@ -15,12 +15,23 @@ import { xiaohongshuAdapter } from './fetcher/adapters/xiaohongshu';
 import { bilibiliAdapter } from './fetcher/adapters/bilibili';
 import { douyinAdapter } from './fetcher/adapters/douyin';
 
+const PLATFORMS = ['xiaohongshu', 'bilibili', 'douyin'];
+
+interface SessionEntry {
+  cookies: string;
+  userAgent: string;
+  updatedAt: number;
+}
+
 async function main() {
   const config = await loadConfig();
   const app = express();
 
   app.use(cors());
   app.use(express.json());
+
+  // In-memory session store
+  const sessions: Record<string, SessionEntry> = {};
 
   // API routes
   app.use('/api/feed', createFeedRoutes());
@@ -32,10 +43,25 @@ async function main() {
   // Extension session endpoint
   app.post('/api/extension/session', (req, res) => {
     const { platform, cookies, userAgent } = req.body;
-    // Store session in memory — used by adapters for authenticated requests
-    sessions[platform] = { cookies, userAgent };
+    sessions[platform] = { cookies, userAgent, updatedAt: Date.now() };
     console.log(`[Session] ${platform} connected`);
     res.json({ ok: true });
+  });
+
+  // Extension status endpoint — queried by web UI
+  app.get('/api/extension/status', (_req, res) => {
+    const SESSION_TTL = 30 * 60 * 1000; // 30 min
+    const statuses = PLATFORMS.map(platform => {
+      const s = sessions[platform];
+      if (!s) {
+        return { platform, status: 'disconnected', message: '未连接' };
+      }
+      if (Date.now() - s.updatedAt > SESSION_TTL) {
+        return { platform, status: 'expired', message: 'Session 已过期' };
+      }
+      return { platform, status: 'connected', message: '已连接' };
+    });
+    res.json({ statuses });
   });
 
   // Serve static web build in production
@@ -52,13 +78,10 @@ async function main() {
   registerAdapter('bilibili', bilibiliAdapter);
   registerAdapter('douyin', douyinAdapter);
 
-  // In-memory session store
-  const sessions: Record<string, { cookies: string; userAgent: string }> = {};
-
   // Start fetch scheduler
   const scheduler = new FetchScheduler();
   scheduler.onFetch(async (platform, userId) => {
-    const { getEnabledUsers, getUserById } = await import('./db/repositories/users');
+    const { getUserById } = await import('./db/repositories/users');
     const user = await getUserById(userId);
     if (!user || !user.enabled) return;
 
@@ -68,7 +91,7 @@ async function main() {
       return;
     }
 
-    await fetchForUser(user, session);
+    await fetchForUser(user, { cookies: session.cookies, userAgent: session.userAgent });
   });
   scheduler.start();
 

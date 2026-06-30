@@ -6,5 +6,8 @@
     "dev:web": "pnpm --filter @agent-feeds/web dev",
     "build:web": "pnpm --filter @agent-feeds/web build",
     "build:extension": "pnpm --filter @agent-feeds/extension build"
+  },
+  "dependencies": {
+    "sqlite3": "^5.1.7"
   }
 }
