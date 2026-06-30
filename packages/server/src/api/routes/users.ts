@@ -43,5 +43,51 @@ export function createUserRoutes(): Router {
     }
   });
 
+  router.post('/add-by-url', async (req: Request, res: Response) => {
+    try {
+      const { url } = req.body;
+      if (!url || !url.includes('xiaohongshu.com/user/profile/')) {
+        return res.status(400).json({ error: '请提供有效的小红书博主主页链接' });
+      }
+
+      // Extract userId from URL: /user/profile/{userId}
+      const match = url.match(/\/user\/profile\/([a-f0-9]+)/);
+      if (!match) {
+        return res.status(400).json({ error: '无法从链接中提取用户 ID' });
+      }
+
+      const userId = match[1];
+      const platform = url.includes('bilibili') ? 'bilibili' : url.includes('douyin') ? 'douyin' : 'xiaohongshu';
+
+      // Check if already exists
+      const { getUserByPlatformId } = await import('../../db/repositories/users');
+      const existing = await getUserByPlatformId(platform, userId);
+      if (existing) {
+        // Re-enable if disabled
+        if (!existing.enabled) {
+          const { updateUser: update } = await import('../../db/repositories/users');
+          await update(existing.id, { enabled: true });
+        }
+        return res.json({ user: existing, existed: true });
+      }
+
+      const { v4: uuid } = await import('uuid');
+      const newUser = {
+        id: uuid(),
+        platform: platform as 'xiaohongshu' | 'bilibili' | 'douyin',
+        platformUserId: userId,
+        profile: { nickname: '', avatar: '' },
+        groupId: null,
+        enabled: true,
+        lastFetchedAt: null,
+      };
+
+      await createUser(newUser);
+      res.status(201).json({ user: newUser, existed: false });
+    } catch (err) {
+      res.status(500).json({ error: 'Failed to add user' });
+    }
+  });
+
   return router;
 }
