@@ -19,26 +19,29 @@
 | 视频转文字 | 云端 Whisper API |
 | 关注管理 | 手动勾选 + 分组管理 |
 | 初始设置 | 引导式流程 |
-| 浏览器插件 | Manifest V3，极简：仅传递 Session/Cookie |
+| 浏览器插件 | Manifest V3，混合策略：优先在插件侧抓取，本地服务辅助 |
 
 ## 架构
 
 ```
-插件 → 拉取器 → 下载器 → 转写器 → 总结器 → Feed 服务 + Web 界面
+插件（抓取/Session）⇄ 拉取器（调度+补充） → 下载器 → 转写器 → 总结器 → Feed 服务 + Web 界面
 ```
 
 ### 1. 浏览器插件
 - Manifest V3（兼容 Chrome/Edge）
-- 检测用户在受支持平台上的浏览行为
-- 提取 Cookie/Session 并通过 HTTP POST 发送给本地服务
+- **抓取策略：混合，默认优先在插件侧完成**
+- 用户在平台页面浏览时，Content Script 可直接拦截页面 API 请求/响应、解析 DOM，随真实浏览器上下文发出请求，天然规避反爬检测
+- 将原始数据推送给本地服务；Cookie/Session 一并同步
 - 弹窗显示各平台连接状态
-- **插件内不做任何抓取逻辑**
+- **对于不需强浏览器上下文的场景**（如根据用户 ID 拉取公开信息），可由本地服务直接发请求
 
-### 2. 拉取器（按平台适配）
-- 接口：`PlatformAdapter { fetch(userId, session): RawPost[] }`
+### 2. 拉取器（调度 + 按平台适配）
+- **主要数据来源：** 插件推送的原始帖子数据（JSON）
+- **辅助数据来源：** 本地服务在必要时直接发请求（如拉取用户公开信息、初始关注列表）
+- 接口：`PlatformAdapter { fetchFollowList(session): User[]; fetchPosts(userId, session): RawPost[] }`
 - 每个平台一个适配器：`adapters/xiaohongshu.ts`、`bilibili.ts`、`douyin.ts`
-- 共享逻辑：频率控制、重试、去重（platform + post_id 唯一约束）
-- 各平台错开拉取，不同时进行
+- 共享逻辑：调度管理、频率控制、去重（platform + post_id 唯一约束）
+- 各平台错开调度，不同时进行
 
 ### 3. 下载器
 - 下载媒体文件（视频、图片）至 `~/.agent-feeds/media/`
@@ -172,6 +175,9 @@ agent-feeds/
 │   │   ├── components/   # FeedCard、FeedList、UserDigest 等
 │   │   └── composables/  # Vue 组合式函数
 │   └── extension/src/    # Manifest V3 浏览器插件
+│       ├── platforms/     # 各平台 Content Script 抓取逻辑
+│       ├── background.ts  # Service Worker
+│       └── popup.ts       # 弹窗状态
 ├── package.json          # pnpm workspaces
 └── tsconfig.json
 ```
