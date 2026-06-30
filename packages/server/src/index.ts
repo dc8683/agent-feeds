@@ -48,6 +48,78 @@ async function main() {
     res.json({ ok: true });
   });
 
+  // Extension data endpoint — receives scraped notes from content script
+  app.post('/api/extension/data', async (req, res) => {
+    try {
+      const { platform, userId, profile, notes } = req.body;
+
+      if (!notes || !Array.isArray(notes) || notes.length === 0) {
+        return res.json({ ok: true, message: 'No notes to process' });
+      }
+
+      // Upsert followed_user
+      const { getUserByPlatformId, createUser, updateUser } = await import('./db/repositories/users');
+      const { v4: uuid } = await import('uuid');
+      const { getDb } = await import('./db/connection');
+
+      let user = await getUserByPlatformId(platform, userId);
+      if (!user) {
+        const newUser = {
+          id: uuid(),
+          platform: platform as 'xiaohongshu',
+          platformUserId: userId,
+          profile: profile || { nickname: '', avatar: '' },
+          groupId: null as string | null,
+          enabled: true,
+          lastFetchedAt: null as string | null,
+        };
+        await createUser(newUser);
+        user = newUser;
+      } else if (profile?.nickname && user.profile.nickname !== profile.nickname) {
+        // Update nickname
+        getDb().run(
+          "UPDATE followed_user SET profile = ?, updated_at = datetime('now') WHERE id = ?",
+          [JSON.stringify(profile), user.id]
+        );
+      }
+
+      // Convert notes to RawPost and insert
+      const { insertPosts } = await import('./db/repositories/posts');
+      const now = new Date().toISOString();
+
+      const rawPosts: any[] = notes.map((n: any) => ({
+        id: uuid(),
+        platform,
+        platformPostId: n.noteId,
+        authorId: user!.id,
+        type: 'image_text',
+        data: { noteId: n.noteId, coverUrl: n.coverUrl, footerText: n.footerText, isPinned: n.isPinned },
+        mediaUrls: n.coverUrl ? [n.coverUrl] : [],
+        permalink: n.noteUrl || `https://www.xiaohongshu.com/explore/${n.noteId}`,
+        publishedAt: now,
+        fetchedAt: now,
+      }));
+
+      await insertPosts(rawPosts);
+
+      // Generate feed items via summarizer
+      const { summarizePost } = await import('./summarizer/single');
+      for (const post of rawPosts) {
+        try {
+          await summarizePost(post);
+        } catch (err: any) {
+          console.error(`[Extension Data] Summarize error: ${err.message}`);
+        }
+      }
+
+      console.log(`[Extension Data] Processed ${notes.length} notes from ${platform}/${userId}`);
+      res.json({ ok: true, processed: notes.length });
+    } catch (err: any) {
+      console.error('[Extension Data] Error:', err.message);
+      res.status(500).json({ error: 'Failed to process data' });
+    }
+  });
+
   // Extension status endpoint — queried by web UI
   app.get('/api/extension/status', (_req, res) => {
     const SESSION_TTL = 30 * 60 * 1000; // 30 min

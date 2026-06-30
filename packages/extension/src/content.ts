@@ -25,77 +25,159 @@ chrome.runtime.sendMessage({
 
 console.log(`[Agent Feeds] Content script loaded on ${platform}`);
 
-// API patterns to intercept (platform-specific)
-const API_PATTERNS: Record<string, RegExp[]> = {
-  xiaohongshu: [
-    /\/api\/sns\/web\/v1\/user_posted/,
-    /\/api\/sns\/web\/v2\/user\/followings/,
-    /\/api\/sns\/web\/v1\/feed/,
-    /\/api\/sns\/web\/v1\/note\//,
-  ],
-  bilibili: [
-    /\/x\/space\/wbi\/arc\/search/,
-    /\/x\/relation\/followings/,
-  ],
-  douyin: [
-    /\/aweme\/v1\/web\/aweme\/post/,
-    /\/aweme\/v1\/web\/following\/list/,
-  ],
-};
-
-const patterns = API_PATTERNS[platform] || [];
-
-function shouldIntercept(url: string): boolean {
-  return patterns.some(p => p.test(url));
-}
-
 function forwardToBackground(data: unknown, endpoint: string) {
-  chrome.runtime.sendMessage({
-    type: 'POST_DATA',
-    endpoint,
-    data,
-  });
+  chrome.runtime.sendMessage({ type: 'POST_DATA', endpoint, data });
 }
 
-// --- Intercept fetch ---
-const origFetch = window.fetch.bind(window);
-window.fetch = async function(input: RequestInfo | URL, init?: RequestInit) {
-  const url = typeof input === 'string' ? input : input instanceof Request ? input.url : input.toString();
-  const response = await origFetch(input, init);
+// ====== 小红书 Profile Page DOM Scraping ======
+if (platform === 'xiaohongshu') {
+  const isProfilePage = /\/user\/profile\//.test(window.location.pathname);
 
-  if (shouldIntercept(url)) {
-    try {
-      const cloned = response.clone();
-      const json = await cloned.json();
-      forwardToBackground({ url, data: json }, '/api/extension/data');
-      console.log(`[Agent Feeds] Intercepted: ${url}`);
-    } catch {
-      // Not JSON or clone failed, skip
-    }
+  if (isProfilePage) {
+    scrapeXhsProfile();
   }
 
-  return response;
-};
+  // Also intercept API calls as a fallback/supplement
+  interceptXhsApis();
+}
 
-// --- Intercept XMLHttpRequest ---
-const origXHROpen = XMLHttpRequest.prototype.open;
-const origXHRSend = XMLHttpRequest.prototype.send;
+// ====== B站 API Interception (stub) ======
+if (platform === 'bilibili') {
+  interceptBilibiliApis();
+}
 
-XMLHttpRequest.prototype.open = function(method: string, url: string | URL, ...args: any[]) {
-  (this as any).__agentFeedsUrl = typeof url === 'string' ? url : url.toString();
-  return origXHROpen.apply(this, [method, url, ...args] as any);
-};
+// ====== 抖音 API Interception (stub) ======
+if (platform === 'douyin') {
+  interceptDouyinApis();
+}
 
-XMLHttpRequest.prototype.send = function(...args: any[]) {
-  const url = (this as any).__agentFeedsUrl as string | undefined;
-  this.addEventListener('load', () => {
-    if (url && shouldIntercept(url) && this.responseText) {
-      try {
-        const json = JSON.parse(this.responseText);
-        forwardToBackground({ url, data: json }, '/api/extension/data');
-        console.log(`[Agent Feeds] XHR Intercepted: ${url}`);
-      } catch { /* not JSON */ }
+// --- 小红书 DOM Scraper ---
+function scrapeXhsProfile() {
+  console.log('[Agent Feeds] Detected 小红书 profile page, starting DOM scrape...');
+
+  // Delay to let page fully load
+  setTimeout(() => {
+    scrollAndExtract();
+  }, 3000);
+
+  async function scrollAndExtract() {
+    // Scroll down a few times to load more notes
+    for (let i = 0; i < 4; i++) {
+      window.scrollTo(0, document.body.scrollHeight);
+      await new Promise(r => setTimeout(r, 1500));
     }
-  });
-  return origXHRSend.apply(this, args as any);
-};
+
+    // Extract notes from DOM
+    const sections = document.querySelectorAll('section.note-item');
+    const notes: any[] = [];
+
+    for (let i = 0; i < sections.length; i++) {
+      const s = sections[i];
+      const img = s.querySelector('img');
+      const footer = s.querySelector('[class*="footer"]');
+      const pin = s.querySelector('[class*="top-wrapper"]');
+
+      let noteUrl = '';
+      let noteId = '';
+      const allLinks = s.querySelectorAll('a');
+      for (let j = 0; j < allLinks.length; j++) {
+        const href = allLinks[j].href;
+        if (href.indexOf('/explore/') >= 0 && !noteUrl) {
+          noteUrl = href;
+          const m = href.match(/explore\/([a-f0-9]+)/);
+          if (m) noteId = m[1];
+        }
+      }
+
+      if (noteId) {
+        notes.push({
+          noteId,
+          coverUrl: img ? img.src : '',
+          footerText: footer ? footer.textContent!.trim() : '',
+          noteUrl,
+          isPinned: !!pin,
+        });
+      }
+    }
+
+    // Extract profile info from page title
+    const title = document.title;
+    const nickname = title.includes(' - ') ? title.split(' - ')[0].trim() : '';
+
+    console.log(`[Agent Feeds] Scraped ${notes.length} notes from ${nickname}`);
+
+    // Extract userId from URL
+    const match = window.location.pathname.match(/\/user\/profile\/([a-f0-9]+)/);
+    const userId = match ? match[1] : '';
+
+    // Push to background → local service
+    forwardToBackground({
+      platform: 'xiaohongshu',
+      userId,
+      profile: { nickname, avatar: '' },
+      notes,
+      scrapedAt: new Date().toISOString(),
+    }, '/api/extension/data');
+  }
+}
+
+// --- 小红书 API Interception ---
+function interceptXhsApis() {
+  const patterns = [
+    /\/api\/sns\/web\/v1\/user_posted/,
+    /\/api\/sns\/web\/v1\/feed/,
+    /\/api\/sns\/web\/v1\/note\//,
+  ];
+
+  const origFetch = window.fetch.bind(window);
+  window.fetch = async function(input: RequestInfo | URL, init?: RequestInit) {
+    const url = typeof input === 'string' ? input : input instanceof Request ? input.url : input.toString();
+    const response = await origFetch(input, init);
+
+    if (patterns.some(p => p.test(url))) {
+      try {
+        const cloned = response.clone();
+        const json = await cloned.json();
+        forwardToBackground({ url, data: json }, '/api/extension/data');
+        console.log(`[Agent Feeds] API Intercepted: ${url}`);
+      } catch { /* skip */ }
+    }
+    return response;
+  };
+}
+
+// --- B站 API Interception (stub) ---
+function interceptBilibiliApis() {
+  const patterns = [/\/x\/space\/wbi\/arc\/search/, /\/x\/relation\/followings/];
+  const origFetch = window.fetch.bind(window);
+  window.fetch = async function(input: RequestInfo | URL, init?: RequestInit) {
+    const url = typeof input === 'string' ? input : input instanceof Request ? input.url : input.toString();
+    const response = await origFetch(input, init);
+    if (patterns.some(p => p.test(url))) {
+      try {
+        const cloned = response.clone();
+        const json = await cloned.json();
+        forwardToBackground({ url, data: json }, '/api/extension/data');
+      } catch { /* skip */ }
+    }
+    return response;
+  };
+}
+
+// --- 抖音 API Interception (stub) ---
+function interceptDouyinApis() {
+  const patterns = [/\/aweme\/v1\/web\/aweme\/post/, /\/aweme\/v1\/web\/following\/list/];
+  const origFetch = window.fetch.bind(window);
+  window.fetch = async function(input: RequestInfo | URL, init?: RequestInit) {
+    const url = typeof input === 'string' ? input : input instanceof Request ? input.url : input.toString();
+    const response = await origFetch(input, init);
+    if (patterns.some(p => p.test(url))) {
+      try {
+        const cloned = response.clone();
+        const json = await cloned.json();
+        forwardToBackground({ url, data: json }, '/api/extension/data');
+      } catch { /* skip */ }
+    }
+    return response;
+  };
+}
