@@ -110,7 +110,30 @@ def scrape_profile(url: str) -> list:
     # Navigate to profile URL using browser_navigate
     call_tool(proc, "browser_navigate", {"url": url, "tab_id": xhs_tab}, rid)
     rid += 1
-    time.sleep(5)  # Wait for page load
+    # Wait for page to fully load and notes to render
+    # 小红书 uses client-side rendering, so we poll for note-item elements
+    deadline = time.time() + 15
+    notes_found = False
+    while time.time() < deadline:
+        check = call_tool(proc, "browser_execute_js", {
+            "script": "document.querySelectorAll('section.note-item').length",
+            "tab_id": xhs_tab,
+        }, rid)
+        rid += 1
+        count = 0
+        # call_tool returns dict with js_return or is error dict
+        if isinstance(check, dict):
+            v = check.get("js_return")
+            if v is not None:
+                try: count = int(v)
+                except: pass
+        if count > 0:
+            notes_found = True
+            break
+        time.sleep(2)
+
+    if not notes_found:
+        print("[xhs-scraper] No note items found after wait", file=sys.stderr)
 
     # Extract profile info from page title
     profile = {"nickname": "", "avatar": ""}
