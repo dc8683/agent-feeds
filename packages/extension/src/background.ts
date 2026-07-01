@@ -82,18 +82,12 @@ async function handleScrapeProfile(msg: any, sender: chrome.runtime.MessageSende
     return;
   }
 
-  // Filter to only new notes
   const newNotes = notes.filter((n: any) => newIds.includes(n.noteId));
-  console.log(`[Agent Feeds] ${newNotes.length}/${notes.length} new notes, scraping detail pages`);
+  console.log(`[Agent Feeds] ${newNotes.length}/${notes.length} new notes`);
 
   activeJob = {
-    tabId,
-    platform,
-    userId,
-    profile,
-    notes: newNotes,
-    noteIndex: 0,
-    details: [],
+    tabId, platform, userId, profile,
+    notes: newNotes, noteIndex: 0, details: [],
   };
 
   chrome.tabs.update(tabId, { url: newNotes[0].noteUrl });
@@ -103,8 +97,6 @@ async function handleScrapeDetail(msg: any) {
   if (!activeJob) return;
 
   const { noteId, bodyText, publishedAt, location } = msg;
-
-  // Find matching note from the job
   const note = activeJob.notes[activeJob.noteIndex];
   if (!note || note.noteId !== noteId) {
     console.warn('[Agent Feeds] Note ID mismatch, skipping');
@@ -115,11 +107,9 @@ async function handleScrapeDetail(msg: any) {
   activeJob.noteIndex++;
 
   if (activeJob.noteIndex < activeJob.notes.length) {
-    // Navigate to next note
     const nextUrl = activeJob.notes[activeJob.noteIndex].noteUrl;
     chrome.tabs.update(activeJob.tabId, { url: nextUrl });
   } else {
-    // All notes scraped — push to server and close tab
     await pushDataToServer();
     chrome.tabs.remove(activeJob.tabId);
     activeJob = null;
@@ -128,76 +118,75 @@ async function handleScrapeDetail(msg: any) {
 
 async function pushDataToServer() {
   if (!activeJob) return;
-
   const { platform, userId, profile, notes, details } = activeJob;
 
-  // Merge note list with scraped details
   const enrichedNotes = notes.map((n, i) => {
     const detail = details[i];
     return {
-      noteId: n.noteId,
-      coverUrl: n.coverUrl,
-      title: n.title,
-      noteUrl: n.noteUrl,
+      noteId: n.noteId, coverUrl: n.coverUrl, title: n.title, noteUrl: n.noteUrl,
       bodyText: detail ? detail.bodyText : '',
       publishedAt: detail ? detail.publishedAt : new Date().toISOString(),
       location: detail ? detail.location : '',
     };
   });
 
-  console.log('[Agent Feeds] Pushing', enrichedNotes.length, 'notes to server');
-
+  console.log('[Agent Feeds] Pushing', enrichedNotes.length, 'notes');
   try {
-    const res = await fetch(`${LOCAL_SERVICE}/api/extension/data`, {
+    await fetch(`${LOCAL_SERVICE}/api/extension/data`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        platform,
-        userId,
-        profile,
-        notes: enrichedNotes,
-        replace: false, // incremental — only new notes
-      }),
+      body: JSON.stringify({ platform, userId, profile, notes: enrichedNotes, replace: false }),
     });
-    const data = await res.json();
-    console.log('[Agent Feeds] Server response:', data);
   } catch (e) {
     console.error('[Agent Feeds] Failed to push data:', e);
   }
 }
 
-// ====== Poll for pending fetch tasks + auto-refresh session ======
-let lastSessionCheck = 0;
+// ====== Main loop via chrome.alarms (survives service worker termination) ======
+chrome.alarms.onAlarm.addListener(async (alarm) => {
+  if (alarm.name !== 'tick') return;
+  if (activeJob) return; // don't interrupt an active scrape
 
-setInterval(async () => {
-  if (activeJob) return;
-
+  // 1. Poll for pending fetch tasks
   try {
     const res = await fetch(`${LOCAL_SERVICE}/api/fetch/pending`);
-    if (!res.ok) return;
-    const { pending, url } = await res.json();
-    if (pending && url) {
-      console.log(`[Agent Feeds] Fetching: ${url}`);
-      await chrome.tabs.create({ url, active: false });
-      return;
+    if (res.ok) {
+      const { pending, url } = await res.json();
+      if (pending && url) {
+        console.log(`[Agent Feeds] Fetching: ${url}`);
+        await chrome.tabs.create({ url, active: false });
+        return;
+      }
     }
   } catch { /* server may not be running */ }
 
-  // No pending tasks — check if we need to refresh session (every 60s)
-  const now = Date.now();
-  if (now - lastSessionCheck < 60000) return;
-  lastSessionCheck = now;
-
+  // 2. Check session — auto-refresh if disconnected (every 10 ticks ≈ 60s)
   try {
+    const stored = await chrome.storage.local.get('tick_count');
+    let count = (stored.tick_count || 0) + 1;
+    await chrome.storage.local.set({ tick_count: count });
+
+    if (count % 10 !== 0) return;
+
     const statusRes = await fetch(`${LOCAL_SERVICE}/api/extension/status`);
     if (!statusRes.ok) return;
     const { statuses } = await statusRes.json();
-    const xhs = statuses.find((s: any) => s.platform === 'xiaohongshu');
-    if (xhs && xhs.status !== 'connected') {
-      console.log('[Agent Feeds] Session disconnected, opening 小红书 to refresh');
-      await chrome.tabs.create({ url: 'https://www.xiaohongshu.com/explore', active: false });
+    for (const s of statuses) {
+      if (s.status !== 'connected') {
+        console.log(`[Agent Feeds] ${s.platform} session ${s.status}, refreshing...`);
+        const urls: Record<string, string> = {
+          xiaohongshu: 'https://www.xiaohongshu.com/explore',
+          bilibili: 'https://www.bilibili.com',
+          douyin: 'https://www.douyin.com',
+        };
+        if (urls[s.platform]) {
+          await chrome.tabs.create({ url: urls[s.platform], active: false });
+        }
+      }
     }
   } catch { /* ignore */ }
-}, 5000);
+});
+
+chrome.alarms.create('tick', { periodInMinutes: 0.1 });
 
 console.log('Agent Feeds background service worker started');
