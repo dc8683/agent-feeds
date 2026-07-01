@@ -166,9 +166,10 @@ async function pushDataToServer() {
   }
 }
 
-// ====== Poll for pending fetch tasks ======
+// ====== Poll for pending fetch tasks + auto-refresh session ======
+let lastSessionCheck = 0;
+
 setInterval(async () => {
-  // Don't poll if we're in the middle of a scrape job
   if (activeJob) return;
 
   try {
@@ -177,10 +178,26 @@ setInterval(async () => {
     const { pending, url } = await res.json();
     if (pending && url) {
       console.log(`[Agent Feeds] Fetching: ${url}`);
-      // Open the profile page — content script will scrape the note list
       await chrome.tabs.create({ url, active: false });
+      return;
     }
   } catch { /* server may not be running */ }
+
+  // No pending tasks — check if we need to refresh session (every 60s)
+  const now = Date.now();
+  if (now - lastSessionCheck < 60000) return;
+  lastSessionCheck = now;
+
+  try {
+    const statusRes = await fetch(`${LOCAL_SERVICE}/api/extension/status`);
+    if (!statusRes.ok) return;
+    const { statuses } = await statusRes.json();
+    const xhs = statuses.find((s: any) => s.platform === 'xiaohongshu');
+    if (xhs && xhs.status !== 'connected') {
+      console.log('[Agent Feeds] Session disconnected, opening 小红书 to refresh');
+      await chrome.tabs.create({ url: 'https://www.xiaohongshu.com/explore', active: false });
+    }
+  } catch { /* ignore */ }
 }, 5000);
 
 console.log('Agent Feeds background service worker started');
