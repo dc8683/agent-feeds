@@ -43,10 +43,26 @@ export function createFetchRoutes(): Router {
     }
   });
 
+  // Dedup: check which noteIds already exist
+  router.post('/check-notes', async (req: Request, res: Response) => {
+    try {
+      const { platform, noteIds } = req.body;
+      if (!noteIds || !Array.isArray(noteIds) || noteIds.length === 0) {
+        return res.json({ newIds: [] });
+      }
+      const { getExistingPostIds } = await import('../../db/repositories/posts');
+      const existing = await getExistingPostIds(platform, noteIds);
+      const newIds = noteIds.filter((id: string) => !existing.has(id));
+      res.json({ newIds });
+    } catch (err: any) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+
   return router;
 }
 
-// Enqueue a session-refresh URL for a platform — called by scheduler when no session
+// Enqueue a session-refresh URL — called by scheduler when no session
 export function enqueueSessionRefresh(platform: string, userId?: string): void {
   const urlMap: Record<string, string> = {
     xiaohongshu: 'https://www.xiaohongshu.com/explore',

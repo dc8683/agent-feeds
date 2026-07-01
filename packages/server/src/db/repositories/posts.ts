@@ -52,6 +52,21 @@ export function insertPosts(posts: RawPost[]): Promise<void> {
   });
 }
 
+// Return a Set of platform_post_ids that already exist
+export function getExistingPostIds(platform: string, postIds: string[]): Promise<Set<string>> {
+  return new Promise((resolve, reject) => {
+    const placeholders = postIds.map(() => '?').join(',');
+    getDb().all(
+      `SELECT platform_post_id FROM raw_post WHERE platform = ? AND platform_post_id IN (${placeholders})`,
+      [platform, ...postIds],
+      (err, rows: any[]) => {
+        if (err) reject(err);
+        else resolve(new Set(rows.map(r => r.platform_post_id)));
+      }
+    );
+  });
+}
+
 function parsePost(row: Record<string, unknown>): RawPost {
   return {
     id: row.id as string,

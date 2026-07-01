@@ -50,34 +50,53 @@ async function handleSessionUpdate(platform: string, cookies: string, userAgent:
   } catch { /* server may not be running */ }
 }
 
-function handleScrapeProfile(msg: any, sender: chrome.runtime.MessageSender) {
+async function handleScrapeProfile(msg: any, sender: chrome.runtime.MessageSender) {
   const tabId = sender.tab?.id;
   if (!tabId) return;
 
   const { platform, userId, profile, notes } = msg;
 
   if (!notes || notes.length === 0) {
-    // No notes to scrape, close tab
     chrome.tabs.remove(tabId);
     return;
   }
 
-  // Start job: navigate to first note detail page
+  // Check which notes are actually new
+  const noteIds = notes.map((n: any) => n.noteId);
+  let newIds: string[] = noteIds;
+  try {
+    const res = await fetch(`${LOCAL_SERVICE}/api/fetch/check-notes`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ platform, noteIds }),
+    });
+    if (res.ok) {
+      const data = await res.json();
+      newIds = data.newIds || [];
+    }
+  } catch { /* proceed with all if check fails */ }
+
+  if (newIds.length === 0) {
+    console.log('[Agent Feeds] No new notes, skipping');
+    chrome.tabs.remove(tabId);
+    return;
+  }
+
+  // Filter to only new notes
+  const newNotes = notes.filter((n: any) => newIds.includes(n.noteId));
+  console.log(`[Agent Feeds] ${newNotes.length}/${notes.length} new notes, scraping detail pages`);
+
   activeJob = {
     tabId,
     platform,
     userId,
     profile,
-    notes,
+    notes: newNotes,
     noteIndex: 0,
     details: [],
   };
 
-  console.log('[Agent Feeds] Starting detail scrape for', notes.length, 'notes');
-
-  // Navigate to first note
-  const firstNoteUrl = notes[0].noteUrl;
-  chrome.tabs.update(tabId, { url: firstNoteUrl });
+  chrome.tabs.update(tabId, { url: newNotes[0].noteUrl });
 }
 
 async function handleScrapeDetail(msg: any) {
@@ -137,7 +156,7 @@ async function pushDataToServer() {
         userId,
         profile,
         notes: enrichedNotes,
-        replace: true,
+        replace: false, // incremental — only new notes
       }),
     });
     const data = await res.json();
