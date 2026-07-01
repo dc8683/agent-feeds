@@ -1,0 +1,1 @@
+ALTER TABLE feed_item ADD COLUMN cover_url TEXT NOT NULL DEFAULT '';

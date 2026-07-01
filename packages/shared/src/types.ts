@@ -65,6 +65,7 @@ export interface FeedItem {
   sourcePlatform: Platform;
   sourceUrls: string[];
   mediaLocalPaths: string[];
+  coverUrl?: string;
   isRead: boolean;
   isSaved: boolean;
   publishedAt: string;

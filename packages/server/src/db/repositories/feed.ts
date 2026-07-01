@@ -30,7 +30,7 @@ export function getAllFeedItems(query: FeedQuery): Promise<FeedItem[]> {
       `SELECT fi.* FROM feed_item fi
        JOIN followed_user fu ON fi.author_id = fu.id
        ${where}
-       ORDER BY fi.created_at DESC LIMIT ?`,
+       ORDER BY fi.published_at DESC LIMIT ?`,
       params,
       (err, rows) => { if (err) reject(err); else resolve((rows || []).map(parseFeedItem)); }
     );
@@ -70,11 +70,12 @@ export function insertFeedItem(item: FeedItem): Promise<void> {
   return new Promise((resolve, reject) => {
     getDb().run(
       `INSERT OR IGNORE INTO feed_item (id, raw_post_ids, author_id, type, title, summary, transcript,
-       ai_tags, source_platform, source_urls, media_local_paths, is_read, is_saved, published_at, created_at)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+       ai_tags, source_platform, source_urls, media_local_paths, cover_url, is_read, is_saved, published_at, created_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       [item.id || uuid(), JSON.stringify(item.rawPostIds), item.authorId, item.type, item.title,
        item.summary, item.transcript, JSON.stringify(item.aiTags), item.sourcePlatform,
        JSON.stringify(item.sourceUrls), JSON.stringify(item.mediaLocalPaths),
+       item.coverUrl || '',
        item.isRead ? 1 : 0, item.isSaved ? 1 : 0, item.publishedAt, item.createdAt || new Date().toISOString()],
       (err) => { if (err) reject(err); else resolve(); }
     );
@@ -110,6 +111,7 @@ function parseFeedItem(row: Record<string, unknown>): FeedItem {
     sourcePlatform: row.source_platform as FeedItem['sourcePlatform'],
     sourceUrls: JSON.parse((row.source_urls as string) || '[]'),
     mediaLocalPaths: JSON.parse((row.media_local_paths as string) || '[]'),
+    coverUrl: (row.cover_url as string) || undefined,
     isRead: Boolean(row.is_read),
     isSaved: Boolean(row.is_saved),
     publishedAt: row.published_at as string,

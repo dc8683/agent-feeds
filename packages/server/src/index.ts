@@ -57,8 +57,8 @@ async function main() {
         return res.json({ ok: true, message: 'No notes to process' });
       }
 
-      // Filter out pinned notes, take last 10
-      const filtered = notes.filter((n: any) => !n.isPinned).slice(-10);
+      // Filter out pinned notes, take up to 10 (content script already limits)
+      const filtered = notes.filter((n: any) => !n.isPinned).slice(0, 10);
 
       // Upsert followed_user
       const { getUserByPlatformId, createUser } = await import('./db/repositories/users');
@@ -93,19 +93,24 @@ async function main() {
 
       // Convert notes to RawPost and insert
       const { insertPosts } = await import('./db/repositories/posts');
-      const now = new Date().toISOString();
+      const baseTime = Date.now();
 
-      const rawPosts: any[] = filtered.map((n: any) => ({
+      const rawPosts: any[] = filtered.map((n: any, i: number) => ({
         id: uuid(),
         platform,
         platformPostId: n.noteId,
         authorId: user!.id,
         type: 'image_text',
-        data: { noteId: n.noteId, coverUrl: n.coverUrl, footerText: n.footerText, desc: n.footerText, body_text: n.footerText },
+        data: {
+          noteId: n.noteId,
+          coverUrl: n.coverUrl,
+          title: n.title || '',
+          body_text: n.bodyText || n.title || '',
+        },
         mediaUrls: n.coverUrl ? [n.coverUrl] : [],
         permalink: n.noteUrl || `https://www.xiaohongshu.com/explore/${n.noteId}`,
-        publishedAt: now,
-        fetchedAt: now,
+        publishedAt: n.publishedAt || new Date(baseTime + (filtered.length - i)).toISOString(),
+        fetchedAt: new Date().toISOString(),
       }));
 
       await insertPosts(rawPosts);
