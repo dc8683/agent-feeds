@@ -26,8 +26,8 @@
   if (platform === 'xiaohongshu' && /\/user\/profile\//.test(location.pathname) && !/\/user\/profile\/[^/]+\/[a-f0-9]+/.test(location.pathname)) {
     setTimeout(() => {
       const nickname = document.title.includes(' - ') ? document.title.split(' - ')[0].trim() : '';
-      // 博主头像在 info 区域的 avatar-item 中，不要用 [class*="avatar"]（会匹配到侧边栏旧头像）
-      const avatarImg = document.querySelector('[class*="info"] [class*="avatar-item"] img[src*="sns-avatar"]');
+      // 博主头像：author > info > img。不能用 [class*="avatar"]（会匹配侧边栏登录用户头像）
+      const avatarImg = document.querySelector('[class*="author"] [class*="info"] img[src*="sns-avatar"]');
       let avatar = avatarImg ? (avatarImg.getAttribute('src') || '') : '';
       // 去掉处理后缀 (|imageMogr2/strip 等)，统一用 /w/360/
       avatar = avatar.replace(/\|imageMogr2\/[^?]*/g, '').replace(/\/w\/\d+\//, '/w/360/');
