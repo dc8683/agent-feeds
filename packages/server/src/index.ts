@@ -158,19 +158,31 @@ async function main() {
   });
 
   // Extension status endpoint — queried by web UI
-  app.get('/api/extension/status', (_req, res) => {
-    const SESSION_TTL = 30 * 60 * 1000; // 30 min
-    const statuses = PLATFORMS.map(platform => {
-      const s = sessions[platform];
-      if (!s) {
-        return { platform, status: 'disconnected', message: '未连接' };
-      }
-      if (Date.now() - s.updatedAt > SESSION_TTL) {
-        return { platform, status: 'expired', message: 'Session 已过期' };
-      }
-      return { platform, status: 'connected', message: '已连接' };
-    });
-    res.json({ statuses });
+  app.get('/api/extension/status', async (_req, res) => {
+    try {
+      const SESSION_TTL = 30 * 60 * 1000; // 30 min
+      // Get platforms that actually have enabled users
+      const { getEnabledUsers } = await import('./db/repositories/users');
+      const users = await getEnabledUsers();
+      const configuredPlatforms = new Set(users.map(u => u.platform));
+
+      const statuses = PLATFORMS.map(platform => {
+        if (!configuredPlatforms.has(platform)) {
+          return { platform, status: 'not_configured', message: '未配置' };
+        }
+        const s = sessions[platform];
+        if (!s) {
+          return { platform, status: 'disconnected', message: '未连接' };
+        }
+        if (Date.now() - s.updatedAt > SESSION_TTL) {
+          return { platform, status: 'expired', message: 'Session 已过期' };
+        }
+        return { platform, status: 'connected', message: '已连接' };
+      });
+      res.json({ statuses });
+    } catch {
+      res.json({ statuses: [] });
+    }
   });
 
   // Serve static web build in production

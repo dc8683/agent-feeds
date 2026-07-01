@@ -124,6 +124,6 @@ export interface SessionTokens {
 // Platform connection status
 export interface PlatformStatus {
   platform: Platform;
-  status: 'connected' | 'expired' | 'rate_limited' | 'error' | 'disconnected';
+  status: 'connected' | 'expired' | 'rate_limited' | 'error' | 'disconnected' | 'not_configured';
   message: string;
 }

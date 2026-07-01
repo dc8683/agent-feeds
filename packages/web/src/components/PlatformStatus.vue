@@ -19,7 +19,8 @@ function platformLabel(p: string): string {
 
 function statusColor(s: string): string {
   if (s === 'connected') return 'green';
-  if (s === 'rate_limited') return 'yellow';
+  if (s === 'rate_limited' || s === 'expired') return 'yellow';
+  if (s === 'not_configured') return 'gray';
   return 'red';
 }
 </script>
