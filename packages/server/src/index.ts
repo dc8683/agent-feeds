@@ -196,7 +196,9 @@ async function main() {
 
     const session = sessions[platform];
     if (!session) {
-      console.warn(`[${platform}] No session available, skipping fetch for ${userId}`);
+      console.warn(`[${platform}] No session available — requesting session refresh`);
+      const { enqueueSessionRefresh } = await import('./api/routes/fetch');
+      enqueueSessionRefresh(platform, userId);
       return;
     }
 

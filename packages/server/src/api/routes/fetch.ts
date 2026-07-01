@@ -45,3 +45,16 @@ export function createFetchRoutes(): Router {
 
   return router;
 }
+
+// Enqueue a session-refresh URL for a platform — called by scheduler when no session
+export function enqueueSessionRefresh(platform: string, userId?: string): void {
+  const urlMap: Record<string, string> = {
+    xiaohongshu: 'https://www.xiaohongshu.com/explore',
+    bilibili: 'https://www.bilibili.com',
+    douyin: 'https://www.douyin.com',
+  };
+  const url = urlMap[platform];
+  if (url) {
+    fetchQueue.push({ url, userId: userId || '__session_refresh__' });
+  }
+}
