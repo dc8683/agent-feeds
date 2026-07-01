@@ -1,6 +1,9 @@
 <template>
   <div style="display: flex; gap: 12px; padding: 8px 16px; background: var(--color-surface); font-size: 12px; align-items: center;">
-    <template v-for="s in statuses" :key="s.platform">
+    <template v-if="statuses.length === 0">
+      <span style="color: var(--color-text-muted);">检测中...</span>
+    </template>
+    <template v-else v-for="s in statuses" :key="s.platform">
       <span :class="['status-dot', statusColor(s.status)]"></span>
       <span style="color: var(--color-text-muted);">{{ platformLabel(s.platform) }}</span>
     </template>

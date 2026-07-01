@@ -28,11 +28,7 @@ import type { PlatformStatus as PS } from '@agent-feeds/shared';
 
 const feed = useFeed();
 
-const platformStatuses = ref<PS[]>([
-  { platform: 'xiaohongshu', status: 'disconnected', message: '等待连接' },
-  { platform: 'bilibili', status: 'disconnected', message: '等待连接' },
-  { platform: 'douyin', status: 'disconnected', message: '等待连接' },
-]);
+const platformStatuses = ref<PS[]>([]);
 
 let statusTimer: ReturnType<typeof setInterval> | null = null;
 
@@ -41,10 +37,12 @@ async function fetchPlatformStatus() {
     const res = await fetch('/api/extension/status');
     if (res.ok) {
       const data = await res.json();
-      platformStatuses.value = data.statuses;
+      if (data.statuses && data.statuses.length > 0) {
+        platformStatuses.value = data.statuses;
+      }
     }
   } catch {
-    // Server may not be running yet
+    // Server may not be running yet — keep last known status
   }
 }
 
