@@ -160,13 +160,13 @@ chrome.alarms.onAlarm.addListener(async (alarm) => {
     }
   } catch { /* server may not be running */ }
 
-  // 2. Check session — auto-refresh if disconnected (every 10 ticks ≈ 60s)
+  // 2. Check session — first tick + every 10 ticks thereafter
   try {
     const stored = await chrome.storage.local.get('tick_count');
     let count = (stored.tick_count || 0) + 1;
     await chrome.storage.local.set({ tick_count: count });
 
-    if (count % 10 !== 0) return;
+    if (count !== 1 && count % 10 !== 0) return; // check on tick 1, then every ~60s
 
     const statusRes = await fetch(`${LOCAL_SERVICE}/api/extension/status`);
     if (!statusRes.ok) return;
@@ -187,6 +187,9 @@ chrome.alarms.onAlarm.addListener(async (alarm) => {
   } catch { /* ignore */ }
 });
 
+// Clear stale alarms from previous version, start fresh
+chrome.alarms.clear('tick');
+chrome.alarms.clear('startup');
 chrome.alarms.create('tick', { periodInMinutes: 0.1 });
 
 console.log('Agent Feeds background service worker started');
