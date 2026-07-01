@@ -11,7 +11,16 @@ export function runMigrations(): void {
 
   for (const file of files) {
     const sql = fs.readFileSync(path.join(migrationsDir, file), 'utf-8');
-    db.exec(sql);
-    console.log(`Migration applied: ${file}`);
+    try {
+      db.exec(sql);
+      console.log(`Migration applied: ${file}`);
+    } catch (err: any) {
+      // Ignore duplicate column errors — migration already applied
+      if (err.message.includes('duplicate column')) {
+        console.log(`Migration skipped (already applied): ${file}`);
+      } else {
+        throw err;
+      }
+    }
   }
 }

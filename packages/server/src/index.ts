@@ -38,6 +38,30 @@ async function main() {
   app.use('/api/users', createUserRoutes());
   app.use('/api/groups', createGroupRoutes());
   app.use('/api/settings', createSettingsRoutes());
+
+  // Image proxy — bypasses 小红书 CDN referrer check
+  app.get('/api/media/proxy', async (req, res) => {
+    try {
+      const url = req.query.url as string;
+      if (!url) return res.status(400).end();
+      const u = new URL(url);
+      // Only proxy known CDN domains
+      if (!u.hostname.endsWith('xhscdn.com') && !u.hostname.endsWith('xiaohongshu.com')) {
+        return res.status(403).end();
+      }
+      const img = await fetch(url, {
+        headers: { 'Referer': 'https://www.xiaohongshu.com/', 'User-Agent': req.headers['user-agent'] || '' },
+      });
+      if (!img.ok) return res.status(img.status).end();
+      const contentType = img.headers.get('content-type') || 'image/jpeg';
+      res.setHeader('Content-Type', contentType);
+      res.setHeader('Cache-Control', 'public, max-age=86400');
+      const buf = Buffer.from(await img.arrayBuffer());
+      res.send(buf);
+    } catch {
+      res.status(500).end();
+    }
+  });
   app.use('/api/fetch', createFetchRoutes());
 
   // Extension session endpoint

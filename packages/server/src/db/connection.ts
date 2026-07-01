@@ -14,6 +14,7 @@ export function getDb(): sqlite3.Database {
       fs.mkdirSync(DB_DIR, { recursive: true });
     }
     db = new sqlite3.Database(DB_PATH);
+    db.on('error', () => {}); // prevent crash on non-fatal errors
     db.run('PRAGMA journal_mode=WAL');
     db.run('PRAGMA foreign_keys=ON');
   }

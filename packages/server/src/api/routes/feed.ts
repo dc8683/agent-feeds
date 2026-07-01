@@ -16,13 +16,16 @@ export function createFeedRoutes(): Router {
         limit: parseInt(limit as string),
       });
 
-      // Enrich items with author info
+      // Enrich items with author info + proxy image URLs
       const enriched = await Promise.all(items.map(async (item) => {
         const author = await getUserById(item.authorId);
+        const avatar = author?.profile?.avatar || '';
+        const coverUrl = (item as any).coverUrl || '';
         return {
           ...item,
           authorName: author?.profile?.nickname || '',
-          authorAvatar: author?.profile?.avatar || '',
+          authorAvatar: avatar ? `/api/media/proxy?url=${encodeURIComponent(avatar)}` : '',
+          coverUrl: coverUrl ? `/api/media/proxy?url=${encodeURIComponent(coverUrl)}` : '',
         };
       }));
 
